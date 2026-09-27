@@ -4,14 +4,21 @@ Note what is NOT here: the LLM. AgentSession is given stt, vad and tts only,
 and the interviewer's words come from our own StageMachine via session.say().
 Keeping the conversation call in our code is what makes it cassette-able,
 swappable per stage, and identical to what the text adapter runs.
+
+Turn handling is LiveKit's job, not ours. We answer on `on_user_turn_completed`
+- the point at which LiveKit has decided the candidate is finished - and never
+on raw transcripts, which arrive mid-turn while the candidate is still talking.
+The hook itself only queues the text: speaking from inside it blocks the very
+turn machinery that called it.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 
-from livekit.agents import Agent, AgentServer, AgentSession, JobContext, cli
+from livekit.agents import Agent, AgentServer, AgentSession, JobContext, cli, llm
 from livekit.plugins import silero
 
 from greenroom.adapters.providers import build_stt, build_tts
@@ -24,48 +31,80 @@ log = logging.getLogger("greenroom.agent")
 server = AgentServer()
 
 
+class Interviewer(Agent):
+    """Hands each completed candidate turn to the queue and returns immediately."""
+
+    def __init__(self, turns: asyncio.Queue[str]) -> None:
+        super().__init__(instructions="")
+        self._turns = turns
+
+    async def on_user_turn_completed(
+        self, turn_ctx: llm.ChatContext, new_message: llm.ChatMessage
+    ) -> None:
+        text = (new_message.text_content or "").strip()
+        if text:
+            log.info("heard: %s", text)
+            self._turns.put_nowait(text)
+
+
 @server.rtc_session()
 async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect()
 
     machine = StageMachine(llm=get_llm())
+    turns: asyncio.Queue[str] = asyncio.Queue()
 
     session = AgentSession(
         stt=build_stt(),
         tts=build_tts(),
         vad=silero.VAD.load(),
+        turn_handling={
+            # Batch speech-to-text takes ~1.1 s, slower than the default
+            # endpointing window, so the transcript lands after the turn is
+            # committed. Drops to ~0.3 s if we move to streaming transcription.
+            "endpointing": {"min_delay": 1.5},
+            # Barge-in: the candidate talks over the interviewer, it stops.
+            "interruption": {"enabled": True},
+        },
     )
-    log.info("providers stt=%s tts=%s", settings.stt_provider, settings.tts_provider)
-
-    turn_opened = 0.0
+    log.info(
+        "providers stt=%s (%s) tts=%s (%s)",
+        settings.stt_provider,
+        settings.stt_model,
+        settings.tts_provider,
+        settings.tts_model,
+    )
 
     @session.on("metrics_collected")
     def _on_metrics(ev) -> None:  # noqa: ANN001 - livekit passes its own event type
         # Speech legs are measured by LiveKit; the LLM leg by the machine.
         machine.latency.on_livekit_metrics(getattr(ev, "metrics", ev))
 
-    @session.on("user_input_transcribed")
-    def _on_transcript(ev) -> None:  # noqa: ANN001 - livekit passes its own event type
-        nonlocal turn_opened
-        if not ev.is_final or not ev.transcript.strip():
-            return
-        said_at, turn_opened = turn_opened, machine.elapsed()
-        ctx.create_task(_respond(ev.transcript.strip(), said_at))
+    async def conversation() -> None:
+        """One consumer, so replies are serialised and never overlap."""
+        turn_opened = machine.elapsed()
+        while True:
+            text = await turns.get()
+            said_at, turn_opened = turn_opened, machine.elapsed()
+            try:
+                # say() takes the async iterator directly, so text-to-speech
+                # starts on the first sentence rather than waiting for the
+                # model to finish.
+                await session.say(machine.answer(text, t_start=said_at))
+            except Exception:
+                log.exception("failed to answer; saying so rather than going silent")
+                await session.say("Sorry, give me one moment.")
+                continue
 
-    async def _respond(text: str, said_at: float) -> None:
-        # say() takes the async iterator directly, so text-to-speech starts on
-        # the first sentence instead of waiting for the model to finish.
-        # allow_interruptions is the barge-in: the candidate talks over the
-        # interviewer and the interviewer stops, as a person would.
-        await session.say(machine.answer(text, t_start=said_at), allow_interruptions=True)
-        if machine.done:
-            log.info(machine.format_transcript())
-            ctx.shutdown(reason="interview complete")
+            if machine.done:
+                log.info(machine.format_transcript())
+                ctx.shutdown(reason="interview complete")
+                return
 
-    await session.start(agent=Agent(instructions=""), room=ctx.room)
-
-    turn_opened = machine.elapsed()
+    await session.start(agent=Interviewer(turns), room=ctx.room)
     await session.say(machine.open())
+
+    await conversation()
 
 
 def main() -> None:
