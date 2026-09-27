@@ -11,6 +11,7 @@ everything runs untraced.
 
 from __future__ import annotations
 
+import atexit
 import base64
 import logging
 
@@ -19,11 +20,12 @@ from greenroom.config import settings
 log = logging.getLogger(__name__)
 
 _tracer = None
+_provider = None
 
 
 def setup() -> bool:
     """Point OTel at Langfuse. Safe to call more than once."""
-    global _tracer
+    global _tracer, _provider
 
     if _tracer is not None:
         return True
@@ -59,9 +61,22 @@ def setup() -> bool:
     except Exception:  # text adapter runs without livekit installed in future
         log.debug("livekit telemetry not available; tracing our spans only")
 
+    _provider = provider
     _tracer = provider.get_tracer("greenroom")
+
+    # Spans are batched, and a short-lived process exits before the batch is
+    # sent - the first run of this traced nothing at all for exactly that
+    # reason. Nobody else calls shutdown, so register it here.
+    atexit.register(flush)
+
     log.info("tracing to %s", settings.langfuse_host)
     return True
+
+
+def flush() -> None:
+    """Send anything still batched. Called at exit, and safe to call by hand."""
+    if _provider is not None:
+        _provider.force_flush(timeout_millis=5000)
 
 
 def tracer():

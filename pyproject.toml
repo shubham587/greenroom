@@ -26,6 +26,7 @@ dev = [
     "pytest>=8.3",
     "httpx>=0.28",  # imported by fastapi's TestClient
     "pre-commit>=4.0",
+    "pytest-asyncio>=1.4",
 ]
 
 [build-system]
@@ -46,7 +47,3 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 
-[dependency-groups]
-dev = [
-    "pytest-asyncio>=1.4.0",
-]
