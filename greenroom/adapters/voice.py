@@ -24,7 +24,7 @@ from livekit.plugins import silero
 from greenroom.adapters.providers import build_stt, build_tts
 from greenroom.config import settings
 from greenroom.llm.client import get_llm
-from greenroom.stages.machine import StageMachine
+from greenroom.stages.machine import StageMachine, is_backchannel
 
 log = logging.getLogger("greenroom.agent")
 
@@ -42,9 +42,13 @@ class Interviewer(Agent):
         self, turn_ctx: llm.ChatContext, new_message: llm.ChatMessage
     ) -> None:
         text = (new_message.text_content or "").strip()
-        if text:
-            log.info("heard: %s", text)
-            self._turns.put_nowait(text)
+        if not text:
+            return
+        if is_backchannel(text):
+            log.info("backchannel, not an answer: %s", text)
+            return
+        log.info("heard: %s", text)
+        self._turns.put_nowait(text)
 
 
 @server.rtc_session()
@@ -90,10 +94,15 @@ async def entrypoint(ctx: JobContext) -> None:
                 # say() takes the async iterator directly, so text-to-speech
                 # starts on the first sentence rather than waiting for the
                 # model to finish.
-                await session.say(machine.answer(text, t_start=said_at))
+                handle = session.say(machine.answer(text, t_start=said_at))
+                await handle
             except Exception:
                 log.exception("failed to answer; saying so rather than going silent")
                 await session.say("Sorry, give me one moment.")
+                continue
+
+            if handle.interrupted and machine.rewind_question():
+                log.info("cut off mid-question - will ask it again")
                 continue
 
             if machine.done:

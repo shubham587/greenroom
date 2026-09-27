@@ -101,3 +101,49 @@ async def test_stub_llm_lets_the_interview_run_with_no_api_key():
     m = StageMachine(llm=StubLLM())
     m.open()
     assert await drain(m, "something")
+
+
+async def test_backchannel_is_not_an_answer():
+    from greenroom.stages.machine import is_backchannel
+
+    # agreement noises made over the interviewer
+    assert is_backchannel("Yes, that is correct.")
+    assert is_backchannel("yeah")
+    assert is_backchannel("Okay right")
+    assert is_backchannel("Got it")
+
+    # real answers, however short
+    assert not is_backchannel("I owned the consumer side.")
+    assert not is_backchannel("Kafka")
+    assert not is_backchannel("Yes, because the partition key was skewed.")
+    assert not is_backchannel("")
+
+
+async def test_interrupted_question_is_asked_again():
+    m = StageMachine(llm=FakeLLM())
+    m.open()
+
+    first = await drain(m, "I built a pipeline.")
+    assert d.QUESTIONS[0] in first
+
+    # the candidate talked over it, so they never heard the question
+    assert m.rewind_question() is True
+
+    second = await drain(m, "sorry, go on")
+    assert d.QUESTIONS[0] in second, "the unheard question should come back"
+
+    # and rewinding twice in a row does nothing the second time
+    assert m.rewind_question() is True
+    assert m.rewind_question() is False
+
+
+async def test_rewind_does_not_reopen_a_finished_interview():
+    m = StageMachine(llm=FakeLLM())
+    m.open()
+    await drain(m, "one")
+    await drain(m, "two")
+    await drain(m, "three")
+    assert m.done
+    # the closing line is not a question, so there is nothing to re-ask
+    assert m.rewind_question() is False
+    assert m.done

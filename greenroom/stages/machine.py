@@ -20,6 +20,51 @@ from greenroom.latency import LatencyBook, percentile
 from greenroom.llm.client import LLM
 from greenroom.stages import definitions as d
 
+# ponytail: flat word set, good enough to stop "yes" ending an interview.
+# If it starts eating real one-word answers, score the utterance instead.
+BACKCHANNEL = {
+    "yes",
+    "yeah",
+    "yep",
+    "yup",
+    "no",
+    "nope",
+    "ok",
+    "okay",
+    "right",
+    "sure",
+    "correct",
+    "exactly",
+    "mm",
+    "mhm",
+    "mhmm",
+    "huh",
+    "got",
+    "see",
+    "understood",
+    "true",
+}
+
+
+FILLER = {"that", "is", "was", "a", "so", "and", "i", "it"}
+
+
+def is_backchannel(text: str) -> bool:
+    """Agreement noises made while the interviewer talks are not answers.
+
+    A real candidate says "yes, that's right" over the top of a question and
+    means nothing by it; counting that as a turn burns a question they never
+    got to hear.
+    """
+    words = [w.strip(".,!?;:'\"") for w in text.lower().split()]
+    words = [w for w in words if w]
+    if not words or len(words) > 5:
+        return False
+    # every word is either an agreement token or connective tissue between
+    # them, and at least one is an actual agreement
+    meaningful = [w for w in words if w not in FILLER]
+    return bool(meaningful) and all(w in BACKCHANNEL for w in meaningful)
+
 
 @dataclass
 class Turn:
@@ -43,6 +88,7 @@ class StageMachine:
     latency: LatencyBook = field(default_factory=LatencyBook)
     done: bool = False
     _asked: int = 0
+    _last_tail_was_question: bool = False
     _t0: float = field(default_factory=time.monotonic)
 
     def open(self) -> str:
@@ -73,9 +119,11 @@ class StageMachine:
         if self._asked < len(self.questions):
             tail = " " + self.questions[self._asked]
             self._asked += 1
+            self._last_tail_was_question = True
         else:
             tail = " " + d.CLOSING
             self.done = True
+            self._last_tail_was_question = False
         yield tail
         parts.append(tail)
 
@@ -87,6 +135,19 @@ class StageMachine:
         self._record(
             "interviewer", "".join(parts).strip(), t, t, ttft_ms=ttft_ms, think_ms=think_ms
         )
+
+    def rewind_question(self) -> bool:
+        """The last question was cut off before the candidate heard it.
+
+        Barge-in truncates the interviewer mid-sentence, but the machine has
+        already counted the question as asked - so the candidate is answering
+        something they never heard. Put it back, and it gets asked again.
+        """
+        if not self._last_tail_was_question or self._asked == 0:
+            return False
+        self._asked -= 1
+        self._last_tail_was_question = False
+        return True
 
     # ---- transcript ----
 
