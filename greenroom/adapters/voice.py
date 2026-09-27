@@ -47,16 +47,18 @@ async def entrypoint(ctx: JobContext) -> None:
         ctx.create_task(_respond(ev.transcript.strip(), said_at))
 
     async def _respond(text: str, said_at: float) -> None:
-        reply = await machine.answer(text, t_start=said_at)
-        await session.say(reply.text)
-        if reply.done:
+        # say() takes the async iterator directly, so text-to-speech starts on
+        # the first sentence instead of waiting for the model to finish.
+        await session.say(machine.answer(text, t_start=said_at))
+        if machine.done:
             log.info(machine.format_transcript())
+            log.info("latency %s", machine.latencies())
             ctx.shutdown(reason="interview complete")
 
     await session.start(agent=Agent(instructions=""), room=ctx.room)
 
     turn_opened = machine.elapsed()
-    await session.say(machine.open().text)
+    await session.say(machine.open())
 
 
 def main() -> None:

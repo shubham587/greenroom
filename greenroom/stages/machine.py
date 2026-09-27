@@ -4,11 +4,16 @@ Transport-agnostic on purpose: it knows nothing about audio, LiveKit, or stdin.
 Both adapters drive this same object, which is what makes the free text dev
 loop and the phase 8 eval harness possible. If this module ever imports
 livekit, the design has broken.
+
+`answer` is an async generator. The caller gets words as they arrive and can
+start speaking the first sentence before the last one exists - which is the
+only way the 800 ms budget is reachable.
 """
 
 from __future__ import annotations
 
 import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
 from greenroom.llm.client import LLM
@@ -21,17 +26,21 @@ class Turn:
     text: str
     t_start: float
     t_end: float
-    think_ms: int | None = None  # interviewer turns: time spent deciding what to say
+    ttft_ms: int | None = None  # interviewer: to the first word out of the model
+    think_ms: int | None = None  # interviewer: to the whole reply assembled
 
     @property
     def duration_s(self) -> float:
         return self.t_end - self.t_start
 
 
-@dataclass
-class Reply:
-    text: str
-    done: bool = False
+def _percentile(values: list[int], pct: float) -> int:
+    """Nearest-rank. Exact on small samples, which is what we have."""
+    if not values:
+        return 0
+    ordered = sorted(values)
+    idx = min(len(ordered) - 1, max(0, round(pct / 100 * len(ordered) + 0.5) - 1))
+    return ordered[idx]
 
 
 @dataclass
@@ -39,34 +48,49 @@ class StageMachine:
     llm: LLM
     questions: list[str] = field(default_factory=lambda: list(d.QUESTIONS))
     transcript: list[Turn] = field(default_factory=list)
+    done: bool = False
     _asked: int = 0
     _t0: float = field(default_factory=time.monotonic)
 
-    def open(self) -> Reply:
+    def open(self) -> str:
         """The interviewer's first line. No model call - it's fixed."""
         self._record("interviewer", d.OPENING, self.elapsed(), self.elapsed())
-        return Reply(d.OPENING)
+        return d.OPENING
 
-    async def answer(self, text: str, *, t_start: float | None = None) -> Reply:
-        """Candidate said `text`. Returns what the interviewer says back."""
+    async def answer(self, text: str, *, t_start: float | None = None) -> AsyncIterator[str]:
+        """Candidate said `text`. Yields the interviewer's reply as it arrives.
+
+        Read `done` after the stream is exhausted. The acknowledgement streams
+        from the model; the question that follows it is appended locally, so it
+        costs nothing and arrives the instant the model stops.
+        """
         end = self.elapsed()
         self._record("candidate", text, t_start if t_start is not None else end, end)
 
-        think_start = time.monotonic()
-        ack = await self.llm.complete(d.SYSTEM, text, max_tokens=60)
+        started = time.monotonic()
+        ttft_ms: int | None = None
+        parts: list[str] = []
+
+        async for piece in self.llm.stream(d.SYSTEM, text, max_tokens=60):
+            if ttft_ms is None:
+                ttft_ms = int((time.monotonic() - started) * 1000)
+            parts.append(piece)
+            yield piece
 
         if self._asked < len(self.questions):
-            reply_text = f"{ack} {self.questions[self._asked]}".strip()
+            tail = " " + self.questions[self._asked]
             self._asked += 1
-            done = False
         else:
-            reply_text = f"{ack} {d.CLOSING}".strip()
-            done = True
+            tail = " " + d.CLOSING
+            self.done = True
+        yield tail
+        parts.append(tail)
 
-        think_ms = int((time.monotonic() - think_start) * 1000)
+        think_ms = int((time.monotonic() - started) * 1000)
         t = self.elapsed()
-        self._record("interviewer", reply_text, t, t, think_ms=think_ms)
-        return Reply(reply_text, done=done)
+        self._record(
+            "interviewer", "".join(parts).strip(), t, t, ttft_ms=ttft_ms, think_ms=think_ms
+        )
 
     # ---- transcript ----
 
@@ -77,21 +101,34 @@ class StageMachine:
     def _record(self, speaker: str, text: str, t_start: float, t_end: float, **kw: int) -> None:
         self.transcript.append(Turn(speaker, text, t_start, t_end, **kw))
 
+    def latencies(self) -> dict[str, int]:
+        """Per-layer numbers the phase 2 gate is measured against."""
+        ttft = [t.ttft_ms for t in self.transcript if t.ttft_ms is not None]
+        full = [t.think_ms for t in self.transcript if t.think_ms is not None]
+        return {
+            "turns": len(ttft),
+            "llm_ttft_p50": _percentile(ttft, 50),
+            "llm_ttft_p95": _percentile(ttft, 95),
+            "llm_full_p50": _percentile(full, 50),
+            "llm_full_p95": _percentile(full, 95),
+        }
+
     def format_transcript(self) -> str:
         def clock(s: float) -> str:
             return f"{int(s) // 60:02d}:{s % 60:04.1f}"
 
         lines = ["", "── transcript ──"]
         for t in self.transcript:
-            think = f"  ({t.think_ms} ms)" if t.think_ms is not None else ""
-            lines.append(f"[{clock(t.t_start)} → {clock(t.t_end)}] {t.speaker:<11} {t.text}{think}")
+            timing = f"  (ttft {t.ttft_ms} ms, full {t.think_ms} ms)" if t.ttft_ms else ""
+            when = f"[{clock(t.t_start)} → {clock(t.t_end)}]"
+            lines.append(f"{when} {t.speaker:<11} {t.text}{timing}")
 
-        thinks = [t.think_ms for t in self.transcript if t.think_ms is not None]
-        if thinks:
+        m = self.latencies()
+        if m["turns"]:
             lines += [
                 "",
-                f"interviewer turns: {len(thinks)}  "
-                f"think time min/median/max: {min(thinks)} / "
-                f"{sorted(thinks)[len(thinks) // 2]} / {max(thinks)} ms",
+                f"{m['turns']} interviewer turns  |  "
+                f"LLM first token p50 {m['llm_ttft_p50']} ms / p95 {m['llm_ttft_p95']} ms  |  "
+                f"full reply p50 {m['llm_full_p50']} ms / p95 {m['llm_full_p95']} ms",
             ]
         return "\n".join(lines)
