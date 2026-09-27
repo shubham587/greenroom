@@ -19,6 +19,10 @@ from dataclasses import dataclass, field
 
 from greenroom.latency import LatencyBook, percentile
 from greenroom.llm.client import LLM
+from greenroom.routing import apply as apply_route
+from greenroom.routing import classify
+from greenroom.schemas.intake import CoverageMap
+from greenroom.schemas.routing import Decision
 from greenroom.stages import definitions as d
 from greenroom.tracing import current_session
 
@@ -94,6 +98,11 @@ class StageMachine:
     # where completed turns go. None keeps the machine pure, which is what
     # the tests and the eval harness want.
     on_turn: Callable[[dict], Awaitable[None]] | None = None
+    # with a map, the interviewer follows the candidate; without one it walks
+    # the fixed script, which is what the phase 1 tests still exercise.
+    coverage: CoverageMap | None = None
+    topic: str = ""
+    decisions: list[Decision] = field(default_factory=list)
     _asked: int = 0
     _last_tail_was_question: bool = False
     _t0: float = field(default_factory=time.monotonic)
@@ -118,6 +127,14 @@ class StageMachine:
         end = self.elapsed()
         self._record("candidate", text, t_start if t_start is not None else end, end)
 
+        decision: Decision | None = None
+        if self.coverage is not None:
+            routed = time.monotonic()
+            decision = await classify(self.llm, self.topic, text, self.coverage)
+            self.latency.record("router", int((time.monotonic() - routed) * 1000))
+            self.topic = apply_route(decision, self.coverage, self.topic)
+            self.decisions.append(decision)
+
         started = time.monotonic()
         ttft_ms: int | None = None
         parts: list[str] = []
@@ -128,14 +145,10 @@ class StageMachine:
             parts.append(piece)
             yield piece
 
-        if self._asked < len(self.questions):
-            tail = " " + self.questions[self._asked]
-            self._asked += 1
-            self._last_tail_was_question = True
-        else:
-            tail = " " + d.CLOSING
+        tail, is_question = self._next_line(decision)
+        self._last_tail_was_question = is_question
+        if not is_question:
             self.done = True
-            self._last_tail_was_question = False
         yield tail
         parts.append(tail)
 
@@ -147,8 +160,26 @@ class StageMachine:
         self._record(
             "interviewer", "".join(parts).strip(), t, t, ttft_ms=ttft_ms, think_ms=think_ms
         )
-        await self._emit(self.transcript[-2])  # what the candidate said
-        await self._emit(self.transcript[-1])  # and what the interviewer said back
+        # the decision rides with the candidate turn it was made about
+        await self._emit(self.transcript[-2], decision)
+        await self._emit(self.transcript[-1])
+
+    def _next_line(self, decision: Decision | None) -> tuple[str, bool]:
+        """What the interviewer says after the acknowledgement."""
+        if self.coverage is None:
+            # phase 1 behaviour: walk the fixed script
+            if self._asked < len(self.questions):
+                line = self.questions[self._asked]
+                self._asked += 1
+                return " " + line, True
+            return " " + d.CLOSING, False
+
+        if not self.topic:
+            return " " + d.CLOSING, False
+
+        self._asked += 1
+        route = decision.route if decision else "pivot"
+        return " " + d.FOLLOW_UP[route].format(topic=self.topic), True
 
     def rewind_question(self) -> bool:
         """The last question was cut off before the candidate heard it.
@@ -172,7 +203,7 @@ class StageMachine:
     def _record(self, speaker: str, text: str, t_start: float, t_end: float, **kw: int) -> None:
         self.transcript.append(Turn(speaker, text, t_start, t_end, **kw))
 
-    async def _emit(self, turn: Turn) -> None:
+    async def _emit(self, turn: Turn, decision: Decision | None = None) -> None:
         if self.on_turn is None:
             return
         await self.on_turn(
@@ -185,6 +216,10 @@ class StageMachine:
                 "t_end": turn.t_end,
                 "ttft_ms": turn.ttft_ms,
                 "think_ms": turn.think_ms,
+                # the live map, so a resumed session does not restart from the
+                # pre-session snapshot and the browser can watch it fill
+                "coverage_map": self.coverage.model_dump() if self.coverage else None,
+                "decision": decision.model_dump() if decision else None,
             }
         )
 

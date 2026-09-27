@@ -75,6 +75,11 @@ async def session_state(ws: WebSocket, session_id: str) -> None:
                         "state": session.state,
                         "stage": session.stage,
                         "turns": len(session.turns),
+                        # the coverage map filling in is the thing worth watching
+                        "coverage": [
+                            {"name": t["name"], "status": t["status"], "priority": t["priority"]}
+                            for t in (session.coverage_map or {}).get("topics", [])
+                        ],
                     }
                 )
             current = json.dumps(payload, sort_keys=True)

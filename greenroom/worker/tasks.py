@@ -14,7 +14,7 @@ import logging
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from greenroom.db.models import Evaluation, Session, Turn
+from greenroom.db.models import Decision, Evaluation, Session, Turn
 from greenroom.db.session import db
 from greenroom.worker.app import app
 
@@ -67,6 +67,22 @@ def record_turn(payload: dict) -> str:
         s.add(turn)
         s.flush()
         turn_id = turn.id
+
+        # the inspectable trace: why this question and not another one
+        if payload.get("decision"):
+            d = payload["decision"]
+            s.add(
+                Decision(
+                    turn_id=turn_id,
+                    route=d["route"],
+                    reason=d["reason"],
+                    topic=d.get("topic") or None,
+                )
+            )
+
+        if payload.get("coverage_map"):
+            session = s.get(Session, payload["session_id"])
+            session.coverage_map = payload["coverage_map"]
 
     log.info("recorded %s turn %s", payload["speaker"], turn_id)
 

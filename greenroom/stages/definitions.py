@@ -20,3 +20,15 @@ QUESTIONS: list[str] = [
 ]
 
 CLOSING = "That's everything from me. Thanks for walking me through it."
+
+
+# What the interviewer says after the acknowledgement, per route. Templates
+# rather than a second model call: the acknowledgement already streamed from
+# the model, and a fixed follow-up costs nothing and arrives instantly.
+FOLLOW_UP: dict[str, str] = {
+    "drill": "Go a level deeper on {topic} - what was the hardest part of it?",
+    "probe": "Be concrete about {topic} for me: what changed, and by how much?",
+    "chase": "Tell me about {topic} - how did that come into it?",
+    "pivot": "Let's move on. Tell me about your experience with {topic}.",
+    "rescue": "That's alright. Talk me through what you do know about {topic}.",
+}

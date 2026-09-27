@@ -29,7 +29,9 @@ services:
     ports: ["9000:9000"]
     volumes: [s3data:/data]
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:9000/"]
+      # -ip=s3 makes it bind to its hostname, so localhost inside the
+      # container is refused and the check must use the service name
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://s3:9000/"]
       interval: 5s
       retries: 20
 
