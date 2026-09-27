@@ -1,7 +1,7 @@
 import asyncio
 
 from greenroom.stages import definitions as d
-from greenroom.stages.machine import StageMachine, _percentile
+from greenroom.stages.machine import StageMachine
 
 
 class FakeLLM:
@@ -93,13 +93,6 @@ async def test_latencies_reports_per_layer_percentiles():
     assert lat["turns"] == 2
     assert lat["llm_ttft_p50"] <= lat["llm_full_p50"]
     assert lat["llm_ttft_p95"] >= lat["llm_ttft_p50"]
-
-
-def test_percentile_is_nearest_rank():
-    assert _percentile([], 50) == 0
-    assert _percentile([5], 95) == 5
-    assert _percentile([1, 2, 3, 4], 50) == 2
-    assert _percentile([1, 2, 3, 4], 95) == 4
 
 
 async def test_stub_llm_lets_the_interview_run_with_no_api_key():

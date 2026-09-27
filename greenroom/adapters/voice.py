@@ -38,6 +38,11 @@ async def entrypoint(ctx: JobContext) -> None:
 
     turn_opened = 0.0
 
+    @session.on("metrics_collected")
+    def _on_metrics(ev) -> None:  # noqa: ANN001 - livekit passes its own event type
+        # Speech legs are measured by LiveKit; the LLM leg by the machine.
+        machine.latency.on_livekit_metrics(getattr(ev, "metrics", ev))
+
     @session.on("user_input_transcribed")
     def _on_transcript(ev) -> None:  # noqa: ANN001 - livekit passes its own event type
         nonlocal turn_opened
@@ -49,10 +54,11 @@ async def entrypoint(ctx: JobContext) -> None:
     async def _respond(text: str, said_at: float) -> None:
         # say() takes the async iterator directly, so text-to-speech starts on
         # the first sentence instead of waiting for the model to finish.
-        await session.say(machine.answer(text, t_start=said_at))
+        # allow_interruptions is the barge-in: the candidate talks over the
+        # interviewer and the interviewer stops, as a person would.
+        await session.say(machine.answer(text, t_start=said_at), allow_interruptions=True)
         if machine.done:
             log.info(machine.format_transcript())
-            log.info("latency %s", machine.latencies())
             ctx.shutdown(reason="interview complete")
 
     await session.start(agent=Agent(instructions=""), room=ctx.room)

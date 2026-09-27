@@ -16,6 +16,7 @@ import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
+from greenroom.latency import LatencyBook, percentile
 from greenroom.llm.client import LLM
 from greenroom.stages import definitions as d
 
@@ -34,20 +35,12 @@ class Turn:
         return self.t_end - self.t_start
 
 
-def _percentile(values: list[int], pct: float) -> int:
-    """Nearest-rank. Exact on small samples, which is what we have."""
-    if not values:
-        return 0
-    ordered = sorted(values)
-    idx = min(len(ordered) - 1, max(0, round(pct / 100 * len(ordered) + 0.5) - 1))
-    return ordered[idx]
-
-
 @dataclass
 class StageMachine:
     llm: LLM
     questions: list[str] = field(default_factory=lambda: list(d.QUESTIONS))
     transcript: list[Turn] = field(default_factory=list)
+    latency: LatencyBook = field(default_factory=LatencyBook)
     done: bool = False
     _asked: int = 0
     _t0: float = field(default_factory=time.monotonic)
@@ -87,6 +80,9 @@ class StageMachine:
         parts.append(tail)
 
         think_ms = int((time.monotonic() - started) * 1000)
+        if ttft_ms is not None:
+            self.latency.record("llm_ttft", ttft_ms)
+        self.latency.record("llm_full", think_ms)
         t = self.elapsed()
         self._record(
             "interviewer", "".join(parts).strip(), t, t, ttft_ms=ttft_ms, think_ms=think_ms
@@ -107,10 +103,10 @@ class StageMachine:
         full = [t.think_ms for t in self.transcript if t.think_ms is not None]
         return {
             "turns": len(ttft),
-            "llm_ttft_p50": _percentile(ttft, 50),
-            "llm_ttft_p95": _percentile(ttft, 95),
-            "llm_full_p50": _percentile(full, 50),
-            "llm_full_p95": _percentile(full, 95),
+            "llm_ttft_p50": percentile(ttft, 50),
+            "llm_ttft_p95": percentile(ttft, 95),
+            "llm_full_p50": percentile(full, 50),
+            "llm_full_p95": percentile(full, 95),
         }
 
     def format_transcript(self) -> str:
@@ -131,4 +127,4 @@ class StageMachine:
                 f"LLM first token p50 {m['llm_ttft_p50']} ms / p95 {m['llm_ttft_p95']} ms  |  "
                 f"full reply p50 {m['llm_full_p50']} ms / p95 {m['llm_full_p95']} ms",
             ]
-        return "\n".join(lines)
+        return "\n".join(lines) + "\n" + self.latency.format()
