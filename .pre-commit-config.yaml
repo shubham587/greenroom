@@ -5,7 +5,9 @@ repos:
       - id: gitleaks
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.4
+    # keep in step with the ruff in pyproject: two versions format
+    # differently, and the hook then rejects what `make lint` just passed
+    rev: v0.16.9
     hooks:
       - id: ruff
         args: [--fix]

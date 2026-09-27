@@ -1,0 +1,63 @@
+id: lru_cache
+title: Least-recently-used cache
+difficulty: hard
+tags: [design, hashing, linked-list, python, javascript]
+level: [senior, staff]
+statement: |
+  Implement get(key) and put(key, value) for a fixed-capacity cache that
+  evicts the least recently used entry. Both must be O(1).
+  Return the list of values produced by the get calls.
+signature:
+  python: "def run(capacity: int, ops: list[list]) -> list"
+  javascript: "function run(capacity, ops)"
+reference:
+  python: |
+    from collections import OrderedDict
+
+    def run(capacity, ops):
+        cache = OrderedDict()
+        out = []
+        for op in ops:
+            if op[0] == "get":
+                if op[1] in cache:
+                    cache.move_to_end(op[1])
+                    out.append(cache[op[1]])
+                else:
+                    out.append(-1)
+            else:
+                if op[1] in cache:
+                    cache.move_to_end(op[1])
+                cache[op[1]] = op[2]
+                if len(cache) > capacity:
+                    cache.popitem(last=False)
+        return out
+  javascript: |
+    function run(capacity, ops) {
+      const cache = new Map();
+      const out = [];
+      for (const op of ops) {
+        if (op[0] === "get") {
+          if (cache.has(op[1])) {
+            const v = cache.get(op[1]);
+            cache.delete(op[1]); cache.set(op[1], v);
+            out.push(v);
+          } else out.push(-1);
+        } else {
+          if (cache.has(op[1])) cache.delete(op[1]);
+          cache.set(op[1], op[2]);
+          if (cache.size > capacity) cache.delete(cache.keys().next().value);
+        }
+      }
+      return out;
+    }
+probes:
+  - "What makes both operations O(1) - which structure gives you which half?"
+  - "Does a get count as a use for eviction purposes? Why does that matter?"
+  - "How would this change if it had to be thread safe?"
+tests:
+  - {name: basic, input: [2, [["put",1,1],["put",2,2],["get",1],["put",3,3],["get",2]]], expected: [1,-1], visible: true, category: happy}
+  - {name: overwrite, input: [2, [["put",1,1],["put",1,9],["get",1]]], expected: [9], visible: true, category: happy}
+  - {name: miss_only, input: [1, [["get",42]]], expected: [-1], visible: true, category: edge}
+  - {name: capacity_one, input: [1, [["put",1,1],["put",2,2],["get",1],["get",2]]], expected: [-1,2], visible: false, category: edge}
+  - {name: get_refreshes, input: [2, [["put",1,1],["put",2,2],["get",1],["put",3,3],["get",2],["get",1]]], expected: [1,-1,1], visible: false, category: edge}
+  - {name: no_ops, input: [2, []], expected: [], visible: false, category: edge}

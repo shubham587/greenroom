@@ -18,6 +18,7 @@ dependencies = [
     "openai>=1.57",
     "livekit-agents[openai,silero]>=1.0",
     "onnxruntime<1.21",
+    "pypdf>=6.19.0",
 ]
 
 [project.optional-dependencies]

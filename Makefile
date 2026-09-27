@@ -32,6 +32,10 @@ text:
 seed:
 	uv run python scripts/seed.py problems/
 
+# make session RESUME=cv.pdf JD=jd.txt
+session:
+	uv run python scripts/session.py $(RESUME) $(JD)
+
 eval:
 	uv run python evals/run.py
 

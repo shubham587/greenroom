@@ -1,0 +1,55 @@
+id: merge_intervals
+title: Merge overlapping intervals
+difficulty: medium
+tags: [arrays, sorting, python, javascript]
+level: [mid, senior]
+statement: |
+  Given a list of intervals [start, end], merge all overlapping intervals
+  and return the result sorted by start.
+signature:
+  python: "def merge(intervals: list[list[int]]) -> list[list[int]]"
+  javascript: "function merge(intervals)"
+reference:
+  python: |
+    def merge(intervals):
+        if not intervals:
+            return []
+        intervals = sorted(intervals)
+        out = [list(intervals[0])]
+        for s, e in intervals[1:]:
+            if s <= out[-1][1]:
+                out[-1][1] = max(out[-1][1], e)
+            else:
+                out.append([s, e])
+        return out
+  javascript: |
+    function merge(intervals) {
+      if (!intervals.length) return [];
+      const xs = [...intervals].sort((a, b) => a[0] - b[0]);
+      const out = [[...xs[0]]];
+      for (const [s, e] of xs.slice(1)) {
+        if (s <= out[out.length - 1][1]) {
+          out[out.length - 1][1] = Math.max(out[out.length - 1][1], e);
+        } else out.push([s, e]);
+      }
+      return out;
+    }
+probes:
+  - "What's your complexity, and where does the sort land in it?"
+  - "What happens if intervals touch but don't overlap - [1,2] and [2,3]?"
+  - "You're mutating the input by sorting it. Does that matter here?"
+# Reprocessing intervals[0] is a no-op here: `s <= out[-1][1]` is trivially
+# true for the interval already in `out`, and max(e, e) == e. No test can
+# catch it because the output is identical - an equivalent mutant, not a
+# gap in coverage.
+equivalent_mutations: [off-by-one-slice]
+
+tests:
+  - {name: basic_overlap, input: [[[1,3],[2,6],[8,10]]], expected: [[1,6],[8,10]], visible: true,  category: happy}
+  - {name: no_overlap,    input: [[[1,2],[5,6]]],        expected: [[1,2],[5,6]], visible: true,  category: happy}
+  - {name: nested,        input: [[[1,10],[2,3]]],       expected: [[1,10]],      visible: true,  category: happy}
+  - {name: empty,         input: [[]],                   expected: [],            visible: false, category: edge}
+  - {name: single,        input: [[[1,4]]],              expected: [[1,4]],       visible: false, category: edge}
+  - {name: touching,      input: [[[1,2],[2,3]]],        expected: [[1,3]],       visible: false, category: edge}
+  - {name: unsorted,      input: [[[5,6],[1,3]]],        expected: [[1,3],[5,6]], visible: false, category: edge}
+  - {name: all_identical, input: [[[1,2],[1,2],[1,2]]],  expected: [[1,2]],       visible: false, category: edge}

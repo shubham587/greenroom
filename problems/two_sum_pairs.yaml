@@ -1,0 +1,42 @@
+id: two_sum_pairs
+title: Count pairs summing to a target
+difficulty: easy
+tags: [arrays, hashing, python, javascript]
+level: [junior, mid]
+statement: |
+  Given a list of integers and a target, return how many unordered pairs of
+  distinct positions sum to the target.
+signature:
+  python: "def count_pairs(nums: list[int], target: int) -> int"
+  javascript: "function countPairs(nums, target)"
+reference:
+  python: |
+    def count_pairs(nums, target):
+        seen = {}
+        total = 0
+        for n in nums:
+            total += seen.get(target - n, 0)
+            seen[n] = seen.get(n, 0) + 1
+        return total
+  javascript: |
+    function countPairs(nums, target) {
+      const seen = new Map();
+      let total = 0;
+      for (const n of nums) {
+        total += seen.get(target - n) || 0;
+        seen.set(n, (seen.get(n) || 0) + 1);
+      }
+      return total;
+    }
+probes:
+  - "Why a hash map rather than sorting and walking two pointers?"
+  - "What does your answer do with duplicates - [1,1,1] and target 2?"
+  - "What's the memory cost, and when would that matter?"
+tests:
+  - {name: simple,       input: [[1,2,3,4], 5],     expected: 2, visible: true,  category: happy}
+  - {name: none_match,   input: [[1,2,3], 100],     expected: 0, visible: true,  category: happy}
+  - {name: duplicates,   input: [[1,1,1], 2],       expected: 3, visible: true,  category: happy}
+  - {name: empty,        input: [[], 5],            expected: 0, visible: false, category: edge}
+  - {name: single,       input: [[5], 5],           expected: 0, visible: false, category: edge}
+  - {name: negatives,    input: [[-1,1,0,2], 0],    expected: 1, visible: false, category: edge}
+  - {name: zeros,        input: [[0,0,0,0], 0],     expected: 6, visible: false, category: edge}

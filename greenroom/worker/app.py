@@ -15,8 +15,9 @@ app.conf.task_routes = {
     "greenroom.worker.record_turn": {"queue": "scoring"},
     "greenroom.worker.score_turn": {"queue": "scoring"},
     "greenroom.worker.close_session": {"queue": "reports"},
+    "greenroom.worker.prepare_session": {"queue": "reports"},
 }
-app.conf.imports = ("greenroom.worker.tasks",)
+app.conf.imports = ("greenroom.worker.tasks", "greenroom.worker.presession")
 
 
 @app.task(name="greenroom.worker.ping")
