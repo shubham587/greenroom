@@ -16,9 +16,11 @@ import sys
 
 from greenroom.llm.client import get_llm
 from greenroom.stages.machine import StageMachine
+from greenroom.tracing import setup as setup_tracing
 
 
 async def run() -> None:
+    setup_tracing()
     machine = StageMachine(llm=get_llm())
 
     print(f"\ninterviewer  {machine.open()}\n")

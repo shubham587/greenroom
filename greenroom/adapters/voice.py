@@ -25,6 +25,7 @@ from greenroom.adapters.providers import build_stt, build_tts
 from greenroom.config import settings
 from greenroom.llm.client import get_llm
 from greenroom.stages.machine import StageMachine, is_backchannel
+from greenroom.tracing import setup as setup_tracing
 
 log = logging.getLogger("greenroom.agent")
 
@@ -53,6 +54,7 @@ class Interviewer(Agent):
 
 @server.rtc_session()
 async def entrypoint(ctx: JobContext) -> None:
+    setup_tracing()
     await ctx.connect()
 
     machine = StageMachine(llm=get_llm())

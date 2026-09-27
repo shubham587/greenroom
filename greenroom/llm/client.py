@@ -37,6 +37,18 @@ class OpenAILLM:
         self._client = AsyncOpenAI(api_key=api_key)
 
     async def stream(self, system: str, user: str, *, max_tokens: int = 150) -> AsyncIterator[str]:
+        from greenroom.tracing import tracer
+
+        t = tracer()
+        span = t.start_span("llm.conversation") if t else None
+        if span:
+            # gen_ai.* is the OpenTelemetry convention Langfuse renders as a
+            # generation rather than a plain span.
+            span.set_attribute("gen_ai.system", "openai")
+            span.set_attribute("gen_ai.request.model", self._model)
+            span.set_attribute("gen_ai.request.max_tokens", max_tokens)
+            span.set_attribute("gen_ai.prompt", user)
+
         extra = {}
         if settings.llm_reasoning_effort:
             extra["reasoning_effort"] = settings.llm_reasoning_effort
@@ -54,15 +66,28 @@ class OpenAILLM:
 
         said_anything = False
         usage = None
-        async for chunk in stream:
-            if chunk.usage is not None:
-                usage = chunk.usage
-            if not chunk.choices:
-                continue
-            piece = chunk.choices[0].delta.content
-            if piece:
-                said_anything = True
-                yield piece
+        parts: list[str] = []
+        try:
+            async for chunk in stream:
+                if chunk.usage is not None:
+                    usage = chunk.usage
+                if not chunk.choices:
+                    continue
+                piece = chunk.choices[0].delta.content
+                if piece:
+                    if span and not said_anything:
+                        # the number the latency budget actually cares about
+                        span.add_event("first_token")
+                    said_anything = True
+                    parts.append(piece)
+                    yield piece
+        finally:
+            if span:
+                span.set_attribute("gen_ai.completion", "".join(parts))
+                if usage is not None:
+                    span.set_attribute("gen_ai.usage.input_tokens", usage.prompt_tokens or 0)
+                    span.set_attribute("gen_ai.usage.output_tokens", usage.completion_tokens or 0)
+                span.end()
 
         if not said_anything:
             # Almost always a reasoning model spending the whole token budget
