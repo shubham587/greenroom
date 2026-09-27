@@ -27,13 +27,35 @@ class OpenAILLM:
         self._client = AsyncOpenAI(api_key=api_key)
 
     async def complete(self, system: str, user: str, *, max_tokens: int = 150) -> str:
+        extra = {}
+        if settings.llm_reasoning_effort:
+            extra["reasoning_effort"] = settings.llm_reasoning_effort
+
         # Static content first so the provider's prefix cache can hit it.
+        # gpt-5/6 rejects max_tokens and wants max_completion_tokens.
         resp = await self._client.chat.completions.create(
             model=self._model,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-            max_tokens=max_tokens,
+            max_completion_tokens=max_tokens,
+            **extra,
         )
-        return (resp.choices[0].message.content or "").strip()
+        text = (resp.choices[0].message.content or "").strip()
+
+        if not text:
+            # Almost always a reasoning model spending the whole token budget
+            # before it says anything. In voice this is silence, which reads as
+            # a hang, so fail loudly rather than return nothing.
+            used = getattr(resp.usage, "completion_tokens", "?")
+            details = getattr(resp.usage, "completion_tokens_details", None)
+            thinking = getattr(details, "reasoning_tokens", "?")
+            raise RuntimeError(
+                f"{self._model} returned empty content: "
+                f"completion_tokens={used}, reasoning_tokens={thinking}, "
+                f"max_completion_tokens={max_tokens}, "
+                f"reasoning_effort={settings.llm_reasoning_effort!r}. "
+                f"Raise the budget or turn reasoning off."
+            )
+        return text
 
 
 class StubLLM:

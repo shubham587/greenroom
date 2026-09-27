@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     model_scorer: str = ""
     model_report: str = ""
 
+    # The conversational turn wants no reasoning: it costs 700+ ms and, at a
+    # small token budget, the reasoning spends it all and the model returns an
+    # empty string. Empty = "" to omit the parameter for models that reject it.
+    llm_reasoning_effort: str = "none"
+
     cassette_mode: str = "off"
 
     langfuse_public_key: str = ""
