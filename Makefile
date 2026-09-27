@@ -2,6 +2,9 @@
 
 COMPOSE := docker compose -f infra/docker-compose.yml
 
+# 8000 is a crowded port on a dev laptop. Override with: make api API_PORT=9999
+API_PORT ?= 8010
+
 up:
 	$(COMPOSE) up -d
 
@@ -9,13 +12,13 @@ down:
 	$(COMPOSE) down
 
 api:
-	uv run uvicorn greenroom.api:app --reload --port 8000
+	uv run uvicorn greenroom.api:app --reload --port $(API_PORT)
 
 worker:
 	uv run celery -A greenroom.worker.app worker -Q scoring,reports -l info
 
 # Needs OPENAI_API_KEY (speech-to-text and text-to-speech). Talk to it at
-# http://localhost:8000/dev with `make api` running alongside.
+# http://localhost:$(API_PORT)/dev with `make api` running alongside.
 agent:
 	uv run python -m greenroom.agent dev
 

@@ -38,12 +38,17 @@ make text     # the interview in text mode — no audio, no API key needed
 interview logic runs on an empty `.env`. Copy `.env.example` to `.env` first.
 
 For voice, add your key and run two processes, then open
-<http://localhost:8000/dev>:
+<http://localhost:8010/dev>:
 
 ```bash
-make api      # FastAPI — mints LiveKit tokens, serves the throwaway client
+make api      # FastAPI on :8010 — mints LiveKit tokens, serves the dev client
 make agent    # the LiveKit worker
 ```
+
+Port 8010, not 8000 — 8000 is crowded on a dev machine and the failure looks
+like a 404 from whatever else already owns it. Override with
+`make api API_PORT=9999`. Check you have the right server with
+`curl localhost:8010/health`, which must return `{"status":"ok"}`.
 
 The client at `/dev` is deliberately one throwaway HTML file. The real one is
 phase 9.
