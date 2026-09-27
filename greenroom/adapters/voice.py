@@ -11,8 +11,9 @@ from __future__ import annotations
 import logging
 
 from livekit.agents import Agent, AgentServer, AgentSession, JobContext, cli
-from livekit.plugins import openai, silero
+from livekit.plugins import silero
 
+from greenroom.adapters.providers import build_stt, build_tts
 from greenroom.config import settings
 from greenroom.llm.client import get_llm
 from greenroom.stages.machine import StageMachine
@@ -29,10 +30,11 @@ async def entrypoint(ctx: JobContext) -> None:
     machine = StageMachine(llm=get_llm())
 
     session = AgentSession(
-        stt=openai.STT(),
-        tts=openai.TTS(),
+        stt=build_stt(),
+        tts=build_tts(),
         vad=silero.VAD.load(),
     )
+    log.info("providers stt=%s tts=%s", settings.stt_provider, settings.tts_provider)
 
     turn_opened = 0.0
 

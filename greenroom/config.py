@@ -21,6 +21,26 @@ class Settings(BaseSettings):
 
     openai_api_key: str = ""
 
+    # Phase 2 measures these combinations against the 800 ms gate and picks.
+    stt_provider: str = "openai"  # openai | deepgram
+    tts_provider: str = "openai"  # openai | cartesia
+    deepgram_api_key: str = ""
+    cartesia_api_key: str = ""
+
+    # Pinned explicitly, not left to the plugin's default, so a plugin upgrade
+    # cannot silently move us onto a pricier model.
+    #   STT  gpt-4o-mini-transcribe  $0.003/min  <- half of whisper-1
+    #        gpt-4o-transcribe       $0.006/min
+    #        realtime transcription  $0.017/min  <- 5.7x; only if phase 2 needs
+    #                                              interim results to hit 800 ms
+    #   TTS  gpt-4o-mini-tts         ~$0.015/min audio, steerable
+    #        tts-1                   $15/1M chars  (about the same for our turns)
+    #        tts-1-hd                $30/1M chars  <- 2x for quality a mock
+    #                                                 interview does not need
+    stt_model: str = "gpt-4o-mini-transcribe"
+    tts_model: str = "gpt-4o-mini-tts"
+    tts_voice: str = "ash"
+
     model_conversation: str = ""
     model_router: str = ""
     model_scorer: str = ""
