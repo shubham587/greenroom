@@ -1,12 +1,20 @@
 """The HTTP surface. Stateless, and never calls a model inside a request handler."""
 
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import json
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from livekit import api
+from sqlalchemy import select
 
 from greenroom.config import settings
+from greenroom.db.models import Session, Turn
+from greenroom.db.session import db
 
 app = FastAPI(title="Greenroom")
 
@@ -17,6 +25,68 @@ _DEV_CLIENT = Path(__file__).resolve().parents[2] / "scripts" / "devclient.html"
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/sessions/{session_id}")
+def get_session(session_id: str) -> dict:
+    with db() as s:
+        session = s.get(Session, session_id)
+        if session is None:
+            raise HTTPException(404, "no such session")
+        turns = s.scalars(
+            select(Turn).where(Turn.session_id == session_id).order_by(Turn.t_start)
+        ).all()
+        return {
+            "id": session.id,
+            "state": session.state,
+            "stage": session.stage,
+            "created_at": session.created_at.isoformat(),
+            "turns": [
+                {
+                    "speaker": t.speaker,
+                    "text": t.text,
+                    "t_start": round(t.t_start, 2),
+                    "ttft_ms": t.ttft_ms,
+                }
+                for t in turns
+            ],
+        }
+
+
+@app.websocket("/ws/sessions/{session_id}")
+async def session_state(ws: WebSocket, session_id: str) -> None:
+    """Push session state to the browser.
+
+    Polling the row is deliberate for now: the only writer is a Celery worker
+    in another process, and a poll is a great deal less machinery than a
+    pub/sub fan-out for a payload that changes a few times a minute. Phase 6
+    swaps it when the coverage map needs pushing live.
+    """
+    await ws.accept()
+    last: str | None = None
+    try:
+        while True:
+            with db() as s:
+                session = s.get(Session, session_id)
+                payload = (
+                    {"state": "unknown", "turns": 0}
+                    if session is None
+                    else {
+                        "state": session.state,
+                        "stage": session.stage,
+                        "turns": len(session.turns),
+                    }
+                )
+            current = json.dumps(payload, sort_keys=True)
+            if current != last:
+                await ws.send_text(current)
+                last = current
+            await asyncio.sleep(1)
+    except WebSocketDisconnect:
+        return
+    except Exception:
+        with contextlib.suppress(Exception):
+            await ws.close()
 
 
 @app.get("/dev/token")

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 
 from greenroom.latency import LatencyBook, percentile
@@ -89,7 +89,11 @@ class StageMachine:
     transcript: list[Turn] = field(default_factory=list)
     latency: LatencyBook = field(default_factory=LatencyBook)
     done: bool = False
+    stage: str = "intro"
     session_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
+    # where completed turns go. None keeps the machine pure, which is what
+    # the tests and the eval harness want.
+    on_turn: Callable[[dict], Awaitable[None]] | None = None
     _asked: int = 0
     _last_tail_was_question: bool = False
     _t0: float = field(default_factory=time.monotonic)
@@ -143,6 +147,8 @@ class StageMachine:
         self._record(
             "interviewer", "".join(parts).strip(), t, t, ttft_ms=ttft_ms, think_ms=think_ms
         )
+        await self._emit(self.transcript[-2])  # what the candidate said
+        await self._emit(self.transcript[-1])  # and what the interviewer said back
 
     def rewind_question(self) -> bool:
         """The last question was cut off before the candidate heard it.
@@ -165,6 +171,22 @@ class StageMachine:
 
     def _record(self, speaker: str, text: str, t_start: float, t_end: float, **kw: int) -> None:
         self.transcript.append(Turn(speaker, text, t_start, t_end, **kw))
+
+    async def _emit(self, turn: Turn) -> None:
+        if self.on_turn is None:
+            return
+        await self.on_turn(
+            {
+                "session_id": self.session_id,
+                "stage": self.stage,
+                "speaker": turn.speaker,
+                "text": turn.text,
+                "t_start": turn.t_start,
+                "t_end": turn.t_end,
+                "ttft_ms": turn.ttft_ms,
+                "think_ms": turn.think_ms,
+            }
+        )
 
     def latencies(self) -> dict[str, int]:
         """Per-layer numbers the phase 2 gate is measured against."""

@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import sys
 
+from greenroom.events import session_completed, turn_completed
 from greenroom.llm.client import get_llm
 from greenroom.stages.machine import StageMachine
 from greenroom.tracing import setup as setup_tracing
@@ -21,7 +22,8 @@ from greenroom.tracing import setup as setup_tracing
 
 async def run() -> None:
     setup_tracing()
-    machine = StageMachine(llm=get_llm())
+    machine = StageMachine(llm=get_llm(), on_turn=turn_completed)
+    print(f"session {machine.session_id}")
 
     print(f"\ninterviewer  {machine.open()}\n")
 
@@ -44,6 +46,7 @@ async def run() -> None:
         if machine.done:
             break
 
+    await session_completed(machine.session_id)
     print(machine.format_transcript())
 
 

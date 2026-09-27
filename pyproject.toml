@@ -39,6 +39,9 @@ packages = ["greenroom"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# alembic writes these; style-gating generated migrations is a fight with a
+# template that we would lose every time one is regenerated
+exclude = ["alembic"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]

@@ -23,6 +23,7 @@ from livekit.plugins import silero
 
 from greenroom.adapters.providers import build_stt, build_tts
 from greenroom.config import settings
+from greenroom.events import session_completed, turn_completed
 from greenroom.llm.client import get_llm
 from greenroom.stages.machine import StageMachine, is_backchannel
 from greenroom.tracing import setup as setup_tracing
@@ -57,7 +58,7 @@ async def entrypoint(ctx: JobContext) -> None:
     setup_tracing()
     await ctx.connect()
 
-    machine = StageMachine(llm=get_llm())
+    machine = StageMachine(llm=get_llm(), on_turn=turn_completed)
     turns: asyncio.Queue[str] = asyncio.Queue()
 
     session = AgentSession(
@@ -109,10 +110,12 @@ async def entrypoint(ctx: JobContext) -> None:
 
             if machine.done:
                 log.info(machine.format_transcript())
+                await session_completed(machine.session_id)
                 ctx.shutdown(reason="interview complete")
                 return
 
     await session.start(agent=Interviewer(turns), room=ctx.room)
+    log.info("session %s", machine.session_id)
     await session.say(machine.open())
 
     await conversation()
