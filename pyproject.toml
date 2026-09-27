@@ -16,6 +16,8 @@ dependencies = [
     "boto3>=1.35",
     "pyyaml>=6.0",
     "openai>=1.57",
+    "livekit-agents[openai,silero]>=1.0",
+    "onnxruntime<1.21",
 ]
 
 [project.optional-dependencies]
@@ -42,3 +44,9 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[dependency-groups]
+dev = [
+    "pytest-asyncio>=1.4.0",
+]

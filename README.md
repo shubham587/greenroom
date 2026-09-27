@@ -7,7 +7,8 @@ replay.
 
 The green room is where you wait before you go on.
 
-> **Status: phase 0 of 13.** Scaffolding only. Nothing works yet.
+> **Status: phase 1 of 13.** A three-question interview runs end to end in text
+> mode. Voice is wired but unverified — it needs an `OPENAI_API_KEY`.
 
 ## Why this exists
 
@@ -29,13 +30,23 @@ Browser ──WebRTC──► LiveKit ──► agent (fast loop) ──► Redi
 ## Running it locally
 
 ```bash
-make up       # postgres, redis, minio, livekit
-make api      # FastAPI
-make worker   # Celery
-make text     # the interview in text mode — no audio, no cost
+make up       # postgres, redis, s3, livekit
+make text     # the interview in text mode — no audio, no API key needed
 ```
 
-Copy `.env.example` to `.env` first.
+`make text` falls back to a stub model when `OPENAI_API_KEY` is unset, so the
+interview logic runs on an empty `.env`. Copy `.env.example` to `.env` first.
+
+For voice, add your key and run two processes, then open
+<http://localhost:8000/dev>:
+
+```bash
+make api      # FastAPI — mints LiveKit tokens, serves the throwaway client
+make agent    # the LiveKit worker
+```
+
+The client at `/dev` is deliberately one throwaway HTML file. The real one is
+phase 9.
 
 ## Layout
 

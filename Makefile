@@ -14,8 +14,10 @@ api:
 worker:
 	uv run celery -A greenroom.worker.app worker -Q scoring,reports -l info
 
+# Needs OPENAI_API_KEY (speech-to-text and text-to-speech). Talk to it at
+# http://localhost:8000/dev with `make api` running alongside.
 agent:
-	uv run python -m greenroom.agent
+	uv run python -m greenroom.agent dev
 
 # The dev loop. Drives the same stage machine as voice, with no STT or TTS cost.
 text:
