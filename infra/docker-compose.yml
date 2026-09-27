@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: greenroom
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dev -d greenroom"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  # S3-compatible local storage. MinIO was the obvious pick but its images are
+  # no longer pullable from Docker Hub or quay.io, so: SeaweedFS, same S3 API.
+  # Dev only — production is Cloudflare R2, reached through the same boto3 code.
+  s3:
+    image: chrislusf/seaweedfs:latest
+    command: server -dir=/data -s3 -s3.port=9000 -ip=s3
+    ports: ["9000:9000"]
+    volumes: [s3data:/data]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:9000/"]
+      interval: 5s
+      retries: 20
+
+  # --dev mints key "devkey" / secret "secret". Local only, never hosted.
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --dev --bind 0.0.0.0
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-50060:50000-50060/udp"
+
+volumes:
+  pgdata:
+  s3data:
