@@ -37,11 +37,15 @@ class OpenAILLM:
         self._client = AsyncOpenAI(api_key=api_key)
 
     async def stream(self, system: str, user: str, *, max_tokens: int = 150) -> AsyncIterator[str]:
-        from greenroom.tracing import tracer
+        from greenroom.tracing import current_session, tracer
 
         t = tracer()
         span = t.start_span("llm.conversation") if t else None
         if span:
+            session = current_session.get()
+            if session:
+                # groups every turn of one interview into a single session
+                span.set_attribute("langfuse.session.id", session)
             # gen_ai.* is the OpenTelemetry convention Langfuse renders as a
             # generation rather than a plain span.
             span.set_attribute("gen_ai.system", "openai")

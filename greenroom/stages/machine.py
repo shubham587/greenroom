@@ -13,12 +13,14 @@ only way the 800 ms budget is reachable.
 from __future__ import annotations
 
 import time
+import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
 from greenroom.latency import LatencyBook, percentile
 from greenroom.llm.client import LLM
 from greenroom.stages import definitions as d
+from greenroom.tracing import current_session
 
 # ponytail: flat word set, good enough to stop "yes" ending an interview.
 # If it starts eating real one-word answers, score the utterance instead.
@@ -87,9 +89,15 @@ class StageMachine:
     transcript: list[Turn] = field(default_factory=list)
     latency: LatencyBook = field(default_factory=LatencyBook)
     done: bool = False
+    session_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     _asked: int = 0
     _last_tail_was_question: bool = False
     _t0: float = field(default_factory=time.monotonic)
+
+    def __post_init__(self) -> None:
+        # every model call made while this machine is live is labelled with
+        # its interview, so the turns group instead of arriving as orphans
+        current_session.set(self.session_id)
 
     def open(self) -> str:
         """The interviewer's first line. No model call - it's fixed."""

@@ -14,6 +14,7 @@ from __future__ import annotations
 import atexit
 import base64
 import logging
+from contextvars import ContextVar
 
 from greenroom.config import settings
 
@@ -21,6 +22,11 @@ log = logging.getLogger(__name__)
 
 _tracer = None
 _provider = None
+
+# Which interview the current call belongs to. A context variable rather than
+# an argument, so the LLM client keeps an interface that knows nothing about
+# interviews - it just labels whatever session it finds itself in.
+current_session: ContextVar[str | None] = ContextVar("greenroom_session", default=None)
 
 
 def setup() -> bool:
