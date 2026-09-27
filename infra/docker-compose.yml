@@ -34,13 +34,19 @@ services:
       retries: 20
 
   # --dev mints key "devkey" / secret "secret". Local only, never hosted.
+  #
+  # --node-ip is load-bearing on Docker Desktop: without it LiveKit advertises
+  # its container IP (172.x) as the ICE candidate, the browser cannot route
+  # there, and the client fails with "could not establish pc connection".
+  # Dev mode also puts all RTC media on a single UDP mux port, 7882 - not the
+  # 50000+ range a production config uses, so that is the only port to map.
   livekit:
     image: livekit/livekit-server:latest
-    command: --dev --bind 0.0.0.0
+    command: --dev --bind 0.0.0.0 --node-ip 127.0.0.1
     ports:
       - "7880:7880"
       - "7881:7881"
-      - "50000-50060:50000-50060/udp"
+      - "7882:7882/udp"
 
 volumes:
   pgdata:

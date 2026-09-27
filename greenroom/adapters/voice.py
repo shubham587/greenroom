@@ -9,6 +9,7 @@ swappable per stage, and identical to what the text adapter runs.
 from __future__ import annotations
 
 import logging
+import os
 
 from livekit.agents import Agent, AgentServer, AgentSession, JobContext, cli
 from livekit.plugins import silero
@@ -73,5 +74,16 @@ def main() -> None:
             "OPENAI_API_KEY is not set. The voice adapter needs it for speech-to-text "
             "and text-to-speech. Use `make text` to run the interview without it."
         )
+
+    # LiveKit's CLI and the OpenAI plugin read the OS environment directly, not
+    # our settings object, so .env values have to be exported for them.
+    for name, value in (
+        ("LIVEKIT_URL", settings.livekit_url),
+        ("LIVEKIT_API_KEY", settings.livekit_api_key),
+        ("LIVEKIT_API_SECRET", settings.livekit_api_secret),
+        ("OPENAI_API_KEY", settings.openai_api_key),
+    ):
+        os.environ.setdefault(name, value)
+
     # run_app owns the event loop and parses the dev/start subcommands.
     cli.run_app(server)
