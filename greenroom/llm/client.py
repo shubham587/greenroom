@@ -96,4 +96,13 @@ def get_llm(model: str | None = None) -> LLM:
     if not settings.openai_api_key or not model:
         log.warning("OPENAI_API_KEY or MODEL_CONVERSATION unset - using StubLLM")
         return StubLLM()
-    return OpenAILLM(model, settings.openai_api_key)
+
+    llm: LLM = OpenAILLM(model, settings.openai_api_key)
+
+    if settings.cassette_mode in {"record", "replay"}:
+        from greenroom.llm.cassette import CassetteLLM
+
+        log.info("cassettes: %s", settings.cassette_mode)
+        llm = CassetteLLM(llm, model, settings.cassette_mode)
+
+    return llm
