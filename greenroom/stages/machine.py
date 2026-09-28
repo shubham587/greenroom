@@ -17,6 +17,7 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 
+from greenroom import review
 from greenroom.latency import LatencyBook, percentile
 from greenroom.llm.client import LLM
 from greenroom.routing import apply as apply_route
@@ -112,6 +113,17 @@ class StageMachine:
     coverage: CoverageMap | None = None
     topic: str = ""
     decisions: list[Decision] = field(default_factory=list)
+    # ---- the coding round ----
+    problem_statement: str = ""
+    problem_probes: list[str] = field(default_factory=list)
+    language: str = "python"
+    # what they SAID they would do, captured while the editor was locked.
+    # Without this the review has nothing to compare the code against.
+    approach_text: str = ""
+    code: str = ""
+    snapshots: list[dict] = field(default_factory=list)
+    test_results: dict | None = None
+    _reviewed: bool = False
     _asked: int = 0
     _last_tail_was_question: bool = False
     _t0: float = field(default_factory=time.monotonic)
@@ -132,6 +144,24 @@ class StageMachine:
     @property
     def current_stage(self) -> d.Stage:
         return (self.stages or d.STAGES)[min(self._stage_idx, len(self.stages or d.STAGES) - 1)]
+
+    @property
+    def editor_unlocked(self) -> bool:
+        """The lock lives here, in agent state, not in the browser.
+
+        A candidate who refreshes the page does not get an editor they have
+        not earned: the approach has to be spoken first.
+        """
+        return bool(self.stages) and self.current_stage.name in d.EDITABLE
+
+    def record_snapshot(self, content: str, language: str = "python") -> None:
+        """The editor buffer, roughly every ten seconds."""
+        self.code = content
+        self.language = language
+        self.snapshots.append({"t": self.elapsed(), "content": content})
+
+    def record_test_results(self, passed: int, total: int, categories: list[str]) -> None:
+        self.test_results = {"passed": passed, "total": total, "categories": categories}
 
     def elapsed_in_stage(self) -> float:
         return self.elapsed() - self._stage_started
@@ -192,6 +222,10 @@ class StageMachine:
         end = self.elapsed()
         self._record("candidate", text, t_start if t_start is not None else end, end)
 
+        # everything said during the approach stage IS the approach
+        if self.stages and self.current_stage.name == "approach":
+            self.approach_text = f"{self.approach_text} {text}".strip()
+
         decision: Decision | None = None
         if self.coverage is not None:
             routed = time.monotonic()
@@ -211,7 +245,7 @@ class StageMachine:
             yield piece
 
         self._stage_turns += 1
-        tail, is_question = self._next_line(decision)
+        tail, is_question = await self._next_line(decision)
         self._last_tail_was_question = is_question
         if not is_question:
             self.done = True
@@ -230,8 +264,12 @@ class StageMachine:
         await self._emit(self.transcript[-2], decision)
         await self._emit(self.transcript[-1])
 
-    def _next_line(self, decision: Decision | None) -> tuple[str, bool]:
+    async def _next_line(self, decision: Decision | None) -> tuple[str, bool]:
         """What the interviewer says after the acknowledgement."""
+        coding_line = await self._coding_line()
+        if coding_line:
+            return coding_line, True
+
         if self.stages and self.stage_is_over():
             moved = self.advance_stage()
             if moved is None:
@@ -257,6 +295,37 @@ class StageMachine:
         self._asked += 1
         route = decision.route if decision else "pivot"
         return nudge + " " + d.FOLLOW_UP[route].format(topic=self.topic), True
+
+    async def _coding_line(self) -> str:
+        """What the coding stages say, when they have something to say.
+
+        Returns "" to fall through to the ordinary stage handling, which is
+        what happens during CODING while the candidate is just typing.
+        """
+        if not self.stages:
+            return ""
+        stage = self.current_stage.name
+
+        if stage == "test_run" and self.test_results:
+            results, self.test_results = self.test_results, None
+            _kind, said = review.submit_reaction(results["passed"], results["total"])
+            return " " + said
+
+        if stage == "code_review" and not self._reviewed:
+            self._reviewed = True
+            # the question nothing else can ask
+            probe = await review.approach_vs_code(
+                self.llm, self.approach_text, self.code, self.language
+            )
+            if probe:
+                return " " + probe
+            rewritten = review.rewrite_probe(self.snapshots)
+            if rewritten:
+                return " " + rewritten
+            if self.problem_probes:
+                return " " + self.problem_probes[0]
+
+        return ""
 
     def rewind_question(self) -> bool:
         """The last question was cut off before the candidate heard it.

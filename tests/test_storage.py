@@ -5,8 +5,8 @@ Skipped when nothing is listening, so CI stays green without a bucket. Run
 endpoint for R2 and the same calls apply.
 """
 
-import socket
-from urllib.parse import urlparse
+import urllib.error
+import urllib.request
 
 import pytest
 
@@ -15,11 +15,19 @@ from greenroom.config import settings
 
 
 def _s3_reachable() -> bool:
-    url = urlparse(settings.s3_endpoint)
+    """Ask for an HTTP response, not just a socket.
+
+    A TCP connect is not enough: Docker Desktop will happily accept a
+    connection on a forwarded port with nothing serving behind it, so a
+    socket check reported the store reachable while every call hung. Skip
+    on what the tests actually need.
+    """
     try:
-        socket.create_connection((url.hostname, url.port or 80), timeout=1).close()
-        return True
-    except OSError:
+        with urllib.request.urlopen(settings.s3_endpoint, timeout=2) as r:
+            return r.status < 500
+    except urllib.error.HTTPError:
+        return True  # it answered, which is all we needed to know
+    except Exception:
         return False
 
 

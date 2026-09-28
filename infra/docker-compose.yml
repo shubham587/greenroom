@@ -25,13 +25,18 @@ services:
   # Dev only — production is Cloudflare R2, reached through the same boto3 code.
   s3:
     image: chrislusf/seaweedfs:latest
-    command: server -dir=/data -s3 -s3.port=9000 -ip=s3
+    # -ip is the address it ADVERTISES; -ip.bind is what it listens on.
+    # Without the bind it listens on the s3 hostname alone, Docker's port
+    # forward lands on an interface nobody is serving, and the host sees a
+    # TCP connect that succeeds followed by an HTTP request that hangs.
+    command: server -dir=/data -s3 -s3.port=9000 -ip=s3 -ip.bind=0.0.0.0
     ports: ["9000:9000"]
     volumes: [s3data:/data]
     healthcheck:
-      # -ip=s3 makes it bind to its hostname, so localhost inside the
-      # container is refused and the check must use the service name
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://s3:9000/"]
+      # localhost on purpose: a check against the service name passes even
+      # when the bind is wrong and no client outside can reach it, which is
+      # a healthcheck lying in the dangerous direction
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9000/"]
       interval: 5s
       retries: 20
 

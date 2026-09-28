@@ -70,6 +70,51 @@ DEEP_DIVE = Stage(
     bridge="Right, I think I have what I need there.",
 )
 
+PROBLEM = Stage(
+    name="problem",
+    budget_s=120,
+    max_turns=3,
+    opening="Here's the problem. Read it, and ask me anything before you start.",
+    bridge="Good.",
+)
+
+# The editor stays LOCKED here. Forcing the approach out loud before any code
+# is what real interviews reward and what almost no practice tool enforces -
+# and it is what lets the review ask "you said hash map, you wrote nested loops".
+APPROACH = Stage(
+    name="approach",
+    budget_s=300,
+    max_turns=4,
+    opening="Before you write anything - how are you going to approach it?",
+    bridge="Right, that's a plan.",
+    nudge="Let's settle on an approach so you have time to write it.",
+)
+
+CODING = Stage(
+    name="coding",
+    budget_s=1200,
+    max_turns=6,
+    opening="Editor's open. Think out loud if it helps, and submit when you're ready.",
+    bridge="Let's look at what you wrote.",
+    nudge="About five minutes left, so aim for something you can submit.",
+)
+
+TEST_RUN = Stage(
+    name="test_run",
+    budget_s=180,
+    max_turns=3,
+    opening="Let's run it.",
+    bridge="Understood.",
+)
+
+CODE_REVIEW = Stage(
+    name="code_review",
+    budget_s=480,
+    max_turns=5,
+    opening="Now talk me through the code.",
+    bridge="That's the code covered.",
+)
+
 WRAP = Stage(
     name="wrap",
     budget_s=120,
@@ -78,10 +123,16 @@ WRAP = Stage(
     bridge=CLOSING,
 )
 
-# The voice-only interview. Phase 10 inserts the coding stages between the
-# intro and the deep dive.
+# The voice-only interview: no editor, no problem.
 STAGES: list[Stage] = [INTRO, DEEP_DIVE, WRAP]
+
+# The full thing. The deep dive comes AFTER the code, so a candidate who
+# spends their whole budget coding still gets asked about their resume.
+FULL: list[Stage] = [INTRO, PROBLEM, APPROACH, CODING, TEST_RUN, CODE_REVIEW, DEEP_DIVE, WRAP]
+
+# Stages where the candidate may type. Everywhere else the editor is shut.
+EDITABLE = {"coding", "test_run"}
 
 
 def by_name(name: str) -> Stage | None:
-    return next((s for s in STAGES if s.name == name), None)
+    return next((s for s in FULL if s.name == name), None)
