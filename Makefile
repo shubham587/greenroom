@@ -51,3 +51,11 @@ migrate:
 
 revision:
 	uv run alembic revision --autogenerate -m "$(m)"
+
+# The web client. Vercel's root directory is `web`, so this mirrors it.
+web:
+	cd web && npm run dev
+
+types:
+	uv run python -c "import json;from greenroom.api import app;print(json.dumps(app.openapi()))" > /tmp/openapi.json
+	cd web && npx --yes openapi-typescript /tmp/openapi.json -o src/lib/api-types.ts

@@ -7,8 +7,10 @@ replay.
 
 The green room is where you wait before you go on.
 
-> **Status: phase 1 of 13.** A three-question interview runs end to end in text
-> mode. Voice is wired but unverified — it needs an `OPENAI_API_KEY`.
+> **Status: phase 9 of 13.** Upload a resume and a job description, talk to
+> the interviewer in a browser, and it follows what you actually say. Scored
+> with verified evidence afterwards. Still to come: the coding round, the
+> report UI, and deployment.
 
 ## Why this exists
 
@@ -37,12 +39,14 @@ make text     # the interview in text mode — no audio, no API key needed
 `make text` falls back to a stub model when `OPENAI_API_KEY` is unset, so the
 interview logic runs on an empty `.env`. Copy `.env.example` to `.env` first.
 
-For voice, add your key and run two processes, then open
-<http://localhost:8010/dev>:
+For the real thing, add your `OPENAI_API_KEY` and run four processes, then
+open <http://localhost:3000>:
 
 ```bash
-make api      # FastAPI on :8010 — mints LiveKit tokens, serves the dev client
-make agent    # the LiveKit worker
+make api      # FastAPI on :8010
+make worker   # Celery - parsing, scoring, reports
+make agent    # the LiveKit voice worker
+make web      # Next.js on :3000
 ```
 
 Port 8010, not 8000 — 8000 is crowded on a dev machine and the failure looks
@@ -50,8 +54,13 @@ like a 404 from whatever else already owns it. Override with
 `make api API_PORT=9999`. Check you have the right server with
 `curl localhost:8010/health`, which must return `{"status":"ok"}`.
 
-The client at `/dev` is deliberately one throwaway HTML file. The real one is
-phase 9.
+Other things worth knowing:
+
+```bash
+make eval     # scorer agreement against the hand-scored cases
+make seed     # verify the problem bank, including the mutation check
+make types    # regenerate web/src/lib/api-types.ts from the OpenAPI schema
+```
 
 ## Layout
 

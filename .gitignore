@@ -13,6 +13,8 @@ dist/
 build/
 
 node_modules/
+web/node_modules/
+web/.next/
 .next/
 out/
 

@@ -23,8 +23,11 @@ from livekit.plugins import silero
 
 from greenroom.adapters.providers import build_stt, build_tts
 from greenroom.config import settings
+from greenroom.db.models import Session
+from greenroom.db.session import db
 from greenroom.events import session_completed, turn_completed
 from greenroom.llm.client import get_llm
+from greenroom.schemas.intake import CoverageMap
 from greenroom.stages.machine import StageMachine, is_backchannel
 from greenroom.tracing import setup as setup_tracing
 
@@ -53,12 +56,50 @@ class Interviewer(Agent):
         self._turns.put_nowait(text)
 
 
+def _machine_for(room_name: str) -> StageMachine:
+    """Build the interview for the session this room belongs to.
+
+    Falls back to the fixed script when the room is not a session room, which
+    is what the throwaway dev client at /dev still uses.
+    """
+    if not room_name.startswith("session_"):
+        log.info("room %s is not a session room - running the fixed script", room_name)
+        return StageMachine(llm=get_llm(), on_turn=turn_completed)
+
+    session_id = room_name.removeprefix("session_")
+    with db() as s:
+        session = s.get(Session, session_id)
+        raw = session.coverage_map if session else None
+
+    if not raw:
+        log.warning("session %s has no coverage map - falling back", session_id)
+        return StageMachine(llm=get_llm(), on_turn=turn_completed, session_id=session_id)
+
+    coverage = CoverageMap.model_validate(raw)
+    machine = StageMachine(
+        llm=get_llm(),
+        on_turn=turn_completed,
+        coverage=coverage,
+        session_id=session_id,
+        stage="deep_dive",
+    )
+    unprobed = coverage.unprobed()
+    machine.topic = unprobed[0].name if unprobed else ""
+    log.info(
+        "session %s: %d topics, opening on %s", session_id, len(coverage.topics), machine.topic
+    )
+    return machine
+
+
 @server.rtc_session()
 async def entrypoint(ctx: JobContext) -> None:
     setup_tracing()
     await ctx.connect()
 
-    machine = StageMachine(llm=get_llm(), on_turn=turn_completed)
+    # The room is named after the session, which is how the agent knows whose
+    # interview it has been handed. Without it every candidate would get the
+    # same generic script regardless of what they uploaded.
+    machine = _machine_for(ctx.room.name)
     turns: asyncio.Queue[str] = asyncio.Queue()
 
     session = AgentSession(
