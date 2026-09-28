@@ -1,0 +1,212 @@
+# Hand-scored answers, the yardstick the scorer is measured against.
+#
+# HONESTY NOTE, read this before trusting the number it produces.
+# These labels were written alongside the rubric and the scorer prompt by the
+# same author. That makes them a REGRESSION suite - they catch the scorer
+# drifting from its own definition - not an independent measurement of whether
+# the rubric is any good. For that, a second person has to score these blind
+# and the two label sets have to be compared. Until then, read the agreement
+# number as "the scorer still means what it meant", not "the scorer is right".
+#
+# `why` cites the anchor the label comes from, so a disagreement is arguable
+# rather than a matter of taste. If you disagree with a label, change it - the
+# labels are the ground truth, and the scorer is what moves.
+
+- id: d5_strong_quantified
+  dimension: D5
+  stage: intro
+  question: Tell me about what you've been working on.
+  answer: >-
+    I rebuilt our order events pipeline on Kafka. Reprocessing went from 40
+    minutes to 6, which mattered because we replay after every bad deploy.
+    The trade-off was more storage - we keep 7 days of raw events now.
+  expected: 5
+  why: every claim carries a number, lands in three sentences, volunteers the trade-off
+
+- id: d5_good_mostly_quantified
+  dimension: D5
+  stage: intro
+  question: Tell me about what you've been working on.
+  answer: >-
+    I owned the consumer side of our events pipeline. We cut reprocessing time
+    by about 85 percent over the last quarter, mostly by batching the writes.
+  expected: 4
+  why: concise, the main claim carries a number
+
+- id: d5_ordinary
+  dimension: D5
+  stage: intro
+  question: Tell me about what you've been working on.
+  answer: >-
+    I've been working on our order pipeline, mostly on the consumer side. We
+    reworked how it handles retries and it's in better shape than it was.
+  expected: 3
+  why: clear narration, some of it backed, no numbers
+
+- id: d5_vague
+  dimension: D5
+  stage: intro
+  question: Tell me about what you've been working on.
+  answer: We improved performance and made things a lot more reliable overall.
+  expected: 2
+  why: narrates but vaguely, every claim unquantified
+
+- id: d5_filler_heavy
+  dimension: D5
+  stage: intro
+  question: Tell me about what you've been working on.
+  answer: >-
+    Um so basically like, we sort of, you know, did a bunch of stuff on the,
+    like, backend side of things I guess, kind of ongoing really.
+  expected: 2
+  why: narrates but says nothing concrete
+
+- id: d5_non_answer
+  dimension: D5
+  stage: intro
+  question: Tell me about what you've been working on.
+  answer: Stuff.
+  expected: 1
+  why: does not address the question
+
+- id: d5_deflects
+  dimension: D5
+  stage: deep_dive
+  question: What was your part in that migration?
+  answer: The team did it. It went fine I think. You'd have to ask them really.
+  expected: 1
+  why: does not address what was asked of them
+
+- id: d1_surfaces_ambiguity
+  dimension: D1
+  stage: problem
+  question: Merge all overlapping intervals and return them sorted by start.
+  answer: >-
+    Before I start - do touching intervals count as overlapping? [1,2] and
+    [2,3] could go either way. I'll assume they merge. Can I mutate the input,
+    and roughly how many intervals are we talking about?
+  expected: 5
+  why: surfaces a real ambiguity in the statement, states the assumption, then proceeds
+
+- id: d1_thorough
+  dimension: D1
+  stage: problem
+  question: Merge all overlapping intervals and return them sorted by start.
+  answer: >-
+    So, merge anything that overlaps and return sorted by start. How big can
+    the input get, and should I handle an empty list specially?
+  expected: 4
+  why: restates correctly, asks about size and an edge case
+
+- id: d1_one_question
+  dimension: D1
+  stage: problem
+  question: Merge all overlapping intervals and return them sorted by start.
+  answer: Right, merge overlapping intervals, output sorted. Are the inputs already sorted?
+  expected: 3
+  why: restates correctly, asks about one input constraint
+
+- id: d1_surface_question
+  dimension: D1
+  stage: problem
+  question: Merge all overlapping intervals and return them sorted by start.
+  answer: Can I use Python for this?
+  expected: 2
+  why: a surface question, no engagement with the problem
+
+- id: d1_dives_in
+  dimension: D1
+  stage: problem
+  question: Merge all overlapping intervals and return them sorted by start.
+  answer: Sure, I'll just loop through and compare each one to the next.
+  expected: 1
+  why: starts solving immediately, no clarifying questions
+
+- id: d2_names_the_constraint
+  dimension: D2
+  stage: approach
+  question: How would you approach it?
+  answer: >-
+    Sort by start, then sweep and merge - O(n log n), dominated by the sort.
+    A brute force pairwise check is O(n squared), and you said up to a million
+    intervals, so that's out. If they arrived pre-sorted I'd drop to O(n).
+  expected: 5
+  why: compares two approaches with complexities and names the constraint that decides
+
+- id: d2_compares_two
+  dimension: D2
+  stage: approach
+  question: How would you approach it?
+  answer: >-
+    I'd sort then sweep, which is n log n. You could compare every pair
+    instead but that's n squared, so sorting is better here.
+  expected: 4
+  why: two approaches, both complexities, choice justified
+
+- id: d2_one_approach
+  dimension: D2
+  stage: approach
+  question: How would you approach it?
+  answer: I'd sort the intervals first and then merge as I go. That's n log n.
+  expected: 3
+  why: workable approach with its complexity, no alternative considered
+
+- id: d2_no_complexity
+  dimension: D2
+  stage: approach
+  question: How would you approach it?
+  answer: I'll use a loop and merge them as I find overlaps.
+  expected: 2
+  why: names an approach, no justification, no complexity
+
+- id: d2_no_approach
+  dimension: D2
+  stage: approach
+  question: How would you approach it?
+  answer: Let me just start writing and see where it goes.
+  expected: 1
+  why: no approach stated
+
+- id: d4_diagnoses_from_count
+  dimension: D4
+  stage: test_run
+  question: Eight of ten passed. Two edge cases failed. What do you think is wrong?
+  answer: >-
+    Two edge failures and the happy paths all passed, so it's boundary
+    handling - almost certainly empty input and the single-interval case,
+    since I index element zero before checking the length. I'd add a guard
+    clause and, generally, write the empty case first next time.
+  expected: 5
+  why: diagnoses from the failure count alone and says how to prevent the class
+
+- id: d4_predicts_class
+  dimension: D4
+  stage: test_run
+  question: Eight of ten passed. Two edge cases failed. What do you think is wrong?
+  answer: Probably empty input, or maybe a list with one interval in it. Let me check that path.
+  expected: 4
+  why: predicts the class of failing input before seeing it
+
+- id: d4_one_hypothesis
+  dimension: D4
+  stage: test_run
+  question: Eight of ten passed. Two edge cases failed. What do you think is wrong?
+  answer: Let me read the failure and see. Might be the ordering - I'll print the output and compare.
+  expected: 3
+  why: reads the failure, forms one hypothesis, tests it
+
+- id: d4_suppresses
+  dimension: D4
+  stage: test_run
+  question: Eight of ten passed. Two edge cases failed. What do you think is wrong?
+  answer: I'll wrap it in a try/except and return an empty list if it throws.
+  expected: 2
+  why: suppresses rather than fixes
+
+- id: d4_gives_up
+  dimension: D4
+  stage: test_run
+  question: Eight of ten passed. Two edge cases failed. What do you think is wrong?
+  answer: No idea. Can you show me which ones failed?
+  expected: 1
+  why: cannot say why it failed, asks to be shown

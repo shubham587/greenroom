@@ -37,7 +37,7 @@ session:
 	uv run python scripts/session.py $(RESUME) $(JD)
 
 eval:
-	uv run python evals/run.py
+	uv run python evals/run.py $(ARGS)
 
 lint:
 	uv run ruff check .

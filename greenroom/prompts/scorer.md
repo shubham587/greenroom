@@ -45,3 +45,26 @@ ideal answer describes the shape a good answer would have taken.
 Be willing to use the whole range. A 3 is an ordinary competent answer; most
 answers are a 3. A 5 is rare and specific. A 1 means the answer did not
 engage with the question. Do not cluster everything at 4.
+
+## Two worked examples
+
+These are here because an unanchored scale drifts upward. Read them as
+calibration for where the middle actually sits.
+
+A 2, on communication and evidence:
+
+  Answer: "We improved performance and made things a lot more reliable."
+  evidence_span: "We improved performance and made things a lot more reliable"
+  score: 2
+  Why: it narrates, so it is not a 1. Nothing is quantified and nothing is
+  specific, so it is not a 3.
+
+A 5, on communication and evidence:
+
+  Answer: "Reprocessing went from 40 minutes to 6, which mattered because we
+  replay after every bad deploy. The trade-off was more storage - we keep 7
+  days of raw events now."
+  evidence_span: "Reprocessing went from 40 minutes to 6"
+  score: 5
+  Why: numbers, the consequence, and a trade-off nobody asked for, in three
+  sentences.

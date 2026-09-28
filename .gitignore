@@ -20,6 +20,7 @@ out/
 *.sqlite3
 
 evals/cassettes/
+# evals/cases.yaml IS committed - the labels are the point
 evals/data/*.wav
 evals/data/*.mp3
 evals/data/*.pdf

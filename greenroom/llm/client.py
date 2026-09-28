@@ -120,7 +120,14 @@ class StubLLM:
             yield piece
 
 
-def get_llm(model: str | None = None) -> LLM:
+def get_llm(model: str | None = None, cassette: str | None = None) -> LLM:
+    """`cassette` overrides CASSETTE_MODE for callers that decide at runtime.
+
+    Settings are read once at import, so a script setting the environment
+    variable inside main() changes nothing - which silently billed every eval
+    run that believed it was replaying from disk. An argument cannot be
+    ignored the way an environment variable can.
+    """
     model = model or settings.model_conversation
     if not settings.openai_api_key or not model:
         log.warning("OPENAI_API_KEY or MODEL_CONVERSATION unset - using StubLLM")
@@ -128,10 +135,11 @@ def get_llm(model: str | None = None) -> LLM:
 
     llm: LLM = OpenAILLM(model, settings.openai_api_key)
 
-    if settings.cassette_mode in {"record", "replay"}:
+    mode = cassette or settings.cassette_mode
+    if mode in {"record", "replay"}:
         from greenroom.llm.cassette import CassetteLLM
 
-        log.info("cassettes: %s", settings.cassette_mode)
-        llm = CassetteLLM(llm, model, settings.cassette_mode)
+        log.info("cassettes: %s", mode)
+        llm = CassetteLLM(llm, model, mode)
 
     return llm

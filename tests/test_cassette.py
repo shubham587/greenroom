@@ -99,3 +99,18 @@ async def test_chunks_are_preserved_not_flattened(tmp_path):
 
     replayed = [chunk async for chunk in c.stream("sys", "hello")]
     assert len(replayed) == 3, "replay must stream in pieces, like the real thing"
+
+
+def test_get_llm_takes_a_cassette_override(monkeypatch):
+    """Settings load once at import, so an environment variable set inside
+    main() is ignored - that silently billed every eval run."""
+    from greenroom.config import settings
+    from greenroom.llm.cassette import CassetteLLM
+    from greenroom.llm.client import OpenAILLM, get_llm
+
+    monkeypatch.setattr(settings, "openai_api_key", "sk-test")
+    monkeypatch.setattr(settings, "model_conversation", "m")
+    monkeypatch.setattr(settings, "cassette_mode", "off")
+
+    assert isinstance(get_llm(), OpenAILLM), "off means no cassette wrapper"
+    assert isinstance(get_llm(cassette="replay"), CassetteLLM), "the argument must win"
