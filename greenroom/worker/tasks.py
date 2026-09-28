@@ -94,27 +94,56 @@ def record_turn(payload: dict) -> str:
 
 @app.task(name="greenroom.worker.score_turn", acks_late=True, max_retries=3)
 def score_turn(turn_id: str) -> str:
-    """No-op until phase 7. Proves the queue hop and the write path.
+    """Score one candidate answer against the dimensions its stage can show.
 
-    Phase 7 replaces the body: one schema-constrained call returning the
-    evidence span first, then the score, then the upgraded answer.
+    Idempotent: a redelivered message replaces this turn's evaluations rather
+    than adding a second set, because acks_late means redelivery happens.
     """
+    import asyncio
+
+    from greenroom import prompts
+    from greenroom.llm.client import get_llm
+    from greenroom.scoring import score as score_answer
+
     with db() as s:
         turn = s.get(Turn, turn_id)
         if turn is None:
             log.warning("score_turn: no turn %s", turn_id)
             return turn_id
+        if turn.speaker != "candidate":
+            return turn_id
 
-        s.add(
-            Evaluation(
-                turn_id=turn_id,
-                dimension="placeholder",
-                score=0,
-                evidence_span=turn.text[:200],
-                prompt_version=None,
+        # the question this was an answer to
+        previous = (
+            s.query(Turn)
+            .filter(
+                Turn.session_id == turn.session_id,
+                Turn.speaker == "interviewer",
+                Turn.t_start <= turn.t_start,
             )
+            .order_by(Turn.t_start.desc())
+            .first()
         )
-    log.info("scored (no-op) turn %s", turn_id)
+        question = previous.text if previous else ""
+        stage, answer = turn.stage, turn.text
+
+    scores = asyncio.run(score_answer(get_llm(), stage, question, answer))
+
+    with db() as s:
+        s.query(Evaluation).filter(Evaluation.turn_id == turn_id).delete()
+        for sc in scores:
+            s.add(
+                Evaluation(
+                    turn_id=turn_id,
+                    dimension=sc.dimension,
+                    score=sc.score,
+                    evidence_span=sc.evidence_span,
+                    ideal_answer=sc.ideal_answer or None,
+                    prompt_version=prompts.version("scorer"),
+                )
+            )
+
+    log.info("scored turn %s: %s", turn_id, [(x.dimension, x.score) for x in scores])
     return turn_id
 
 
@@ -129,4 +158,10 @@ def close_session(session_id: str, state: str = "completed") -> str:
         session.state = state
         session.ended_at = datetime.now(UTC)
     log.info("session %s -> %s", session_id, state)
+
+    # the report waits for the scoring backlog itself, so this can fire now
+    if state == "completed":
+        from greenroom.worker.reports import finalize_report
+
+        finalize_report.delay(session_id)
     return session_id

@@ -122,3 +122,26 @@ class CodeSnap(Base):
     language: Mapped[str] = mapped_column(String(16))
     content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class Report(Base):
+    """The thing the candidate reads. One per session.
+
+    Written by the finaliser once every turn has been scored, so it is a
+    snapshot rather than something the UI recomputes.
+    """
+
+    __tablename__ = "reports"
+
+    id: Mapped[str] = mapped_column(String(12), primary_key=True, default=_id)
+    session_id: Mapped[str] = mapped_column(ForeignKey("sessions.id"), index=True, unique=True)
+
+    narrative: Mapped[str] = mapped_column(Text, default="")
+    # {"D1": {"score": 3.5, "n": 2}, ...}
+    dimension_scores: Mapped[dict] = mapped_column(JSON, default=dict)
+    # filler words, pace, pauses - arithmetic, no model involved
+    delivery: Mapped[dict] = mapped_column(JSON, default=dict)
+    coverage: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    prompt_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
