@@ -80,9 +80,11 @@ def record_turn(payload: dict) -> str:
                 )
             )
 
+        session = s.get(Session, payload["session_id"])
         if payload.get("coverage_map"):
-            session = s.get(Session, payload["session_id"])
             session.coverage_map = payload["coverage_map"]
+        # which stage the interview reached, so another worker can resume it
+        session.stage = payload.get("stage") or session.stage
 
     log.info("recorded %s turn %s", payload["speaker"], turn_id)
 

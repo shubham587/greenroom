@@ -27,7 +27,10 @@ from greenroom.db.models import Session
 from greenroom.db.session import db
 from greenroom.events import session_completed, turn_completed
 from greenroom.llm.client import get_llm
+from greenroom.problems import load_all
 from greenroom.schemas.intake import CoverageMap
+from greenroom.stages import definitions
+from greenroom.stages.context import build_static
 from greenroom.stages.machine import StageMachine, is_backchannel
 from greenroom.tracing import setup as setup_tracing
 
@@ -70,6 +73,11 @@ def _machine_for(room_name: str) -> StageMachine:
     with db() as s:
         session = s.get(Session, session_id)
         raw = session.coverage_map if session else None
+        session_resume = session.resume_json if session else None
+        session_jd = session.jd_json if session else None
+        problem_id = session.problem_id if session else None
+
+    problem = next((p for p in load_all() if p.id == problem_id), None) if problem_id else None
 
     if not raw:
         log.warning("session %s has no coverage map - falling back", session_id)
@@ -81,7 +89,8 @@ def _machine_for(room_name: str) -> StageMachine:
         on_turn=turn_completed,
         coverage=coverage,
         session_id=session_id,
-        stage="deep_dive",
+        stages=list(definitions.STAGES),
+        static_context=build_static(session_resume, session_jd, problem.title if problem else None),
     )
     unprobed = coverage.unprobed()
     machine.topic = unprobed[0].name if unprobed else ""

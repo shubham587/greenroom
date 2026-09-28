@@ -23,6 +23,7 @@ from greenroom.routing import apply as apply_route
 from greenroom.routing import classify
 from greenroom.schemas.intake import CoverageMap
 from greenroom.schemas.routing import Decision
+from greenroom.stages import context as ctx
 from greenroom.stages import definitions as d
 from greenroom.tracing import current_session
 
@@ -94,6 +95,14 @@ class StageMachine:
     latency: LatencyBook = field(default_factory=LatencyBook)
     done: bool = False
     stage: str = "intro"
+    # None keeps phase 1 behaviour: one stage, the fixed question script.
+    stages: list[d.Stage] | None = None
+    static_context: str = ""
+    summary: str = ""
+    _stage_idx: int = 0
+    _stage_started: float = 0.0
+    _stage_turns: int = 0
+    _nudged: bool = False
     session_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     # where completed turns go. None keeps the machine pure, which is what
     # the tests and the eval harness want.
@@ -114,8 +123,64 @@ class StageMachine:
 
     def open(self) -> str:
         """The interviewer's first line. No model call - it's fixed."""
-        self._record("interviewer", d.OPENING, self.elapsed(), self.elapsed())
-        return d.OPENING
+        line = self.current_stage.opening if self.stages else d.OPENING
+        self._record("interviewer", line, self.elapsed(), self.elapsed())
+        return line
+
+    # ---- stages ----
+
+    @property
+    def current_stage(self) -> d.Stage:
+        return (self.stages or d.STAGES)[min(self._stage_idx, len(self.stages or d.STAGES) - 1)]
+
+    def elapsed_in_stage(self) -> float:
+        return self.elapsed() - self._stage_started
+
+    def stage_is_over(self) -> bool:
+        """Out of time, out of turns, or out of things to ask about."""
+        stage = self.current_stage
+        if self._stage_turns >= stage.max_turns:
+            return True
+        if self.elapsed_in_stage() >= stage.budget_s:
+            return True
+        # the deep dive ends when the coverage map does
+        return bool(stage.name == "deep_dive" and self.coverage and not self.coverage.unprobed())
+
+    def should_nudge(self) -> bool:
+        """80% of the budget. A nudge, never a cut mid-sentence."""
+        if self._nudged or not self.stages:
+            return False
+        return self.elapsed_in_stage() >= 0.8 * self.current_stage.budget_s
+
+    def advance_stage(self) -> str | None:
+        """Move on. Returns the bridge plus the next opening, or None at the end.
+
+        The summary of the finished stage is computed here rather than asked
+        for: a model call at a stage boundary is either dead air or a race.
+        """
+        stages = self.stages or d.STAGES
+        finished = self.current_stage
+        piece = ctx.summarise_locally(self.transcript, finished.name)
+        self.summary = f"{self.summary}\n{piece}".strip()
+
+        self._stage_idx += 1
+        if self._stage_idx >= len(stages):
+            self.done = True
+            return None
+
+        self._stage_started = self.elapsed()
+        self._stage_turns = 0
+        self._nudged = False
+        self.stage = self.current_stage.name
+        return f"{finished.bridge} {self.current_stage.opening}"
+
+    def context(self) -> ctx.Context:
+        """What goes to the model this turn, in cache-friendly order."""
+        return ctx.Context(
+            static=self.static_context,
+            summary=self.summary,
+            recent=ctx.recent_lines(self.transcript),
+        )
 
     async def answer(self, text: str, *, t_start: float | None = None) -> AsyncIterator[str]:
         """Candidate said `text`. Yields the interviewer's reply as it arrives.
@@ -145,6 +210,7 @@ class StageMachine:
             parts.append(piece)
             yield piece
 
+        self._stage_turns += 1
         tail, is_question = self._next_line(decision)
         self._last_tail_was_question = is_question
         if not is_question:
@@ -166,6 +232,17 @@ class StageMachine:
 
     def _next_line(self, decision: Decision | None) -> tuple[str, bool]:
         """What the interviewer says after the acknowledgement."""
+        if self.stages and self.stage_is_over():
+            moved = self.advance_stage()
+            if moved is None:
+                return " " + d.CLOSING, False
+            return " " + moved, True
+
+        nudge = ""
+        if self.should_nudge():
+            self._nudged = True
+            nudge = " " + self.current_stage.nudge
+
         if self.coverage is None:
             # phase 1 behaviour: walk the fixed script
             if self._asked < len(self.questions):
@@ -179,7 +256,7 @@ class StageMachine:
 
         self._asked += 1
         route = decision.route if decision else "pivot"
-        return " " + d.FOLLOW_UP[route].format(topic=self.topic), True
+        return nudge + " " + d.FOLLOW_UP[route].format(topic=self.topic), True
 
     def rewind_question(self) -> bool:
         """The last question was cut off before the candidate heard it.
